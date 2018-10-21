@@ -2,6 +2,7 @@ from __future__ import division
 import sys
 import gc
 import os
+import time
 from distutils.version import LooseVersion
 import ctypes
 import blosc
@@ -132,7 +133,27 @@ class TestCodec(unittest.TestCase):
         self.assertEqual(expected, blosc.decompress(bytearray(compressed)))
         self.assertEqual(expected, blosc.decompress(np.array([compressed])))
         blosc.set_releasegil(False)
-        
+
+    def test_forksafe(self):
+        raw = os.urandom(5 * 1024 * 1024)
+        comp = blosc.compress(raw)
+
+        newpid = os.fork()
+        if newpid == 0:
+            blosc.decompress(comp)
+            os._exit(0)
+        else:
+            left = 1.0
+            step = .01
+            while left > 0:
+                result = os.waitpid(newpid, os.WNOHANG)
+                if result != (0, 0):
+                    break
+                time.sleep(step)
+                left -= step
+            else:
+                raise TimeoutError("Child process deadlocked post fork.")
+
     def test_decompress_input_types_as_bytearray(self):
         import numpy as np
         # assume the expected answer was compressed from bytes
